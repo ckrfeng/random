@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jane Street May Puzzle</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px;
+    font-family: 'Segoe UI', sans-serif;
+    background: #16213e;
+    color: #e0e0e0;
+    display: flex;
+    gap: 20px;
+    min-height: 100vh;
+  }
+
+  /* ── Puzzle area ── */
+  #puzzle-wrap {
+    position: relative;
+    flex-shrink: 0;
+    align-self: flex-start;
+  }
+  #puzzle-img {
+    display: block;
+    width: 680px;
+    height: 680px;
+    user-select: none;
+  }
+  #arc-canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 680px; height: 680px;
+    cursor: crosshair;
+  }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    align-self: flex-start;
+  }
+  h3 { margin: 0; font-size: 15px; color: #90caf9; text-transform: uppercase; letter-spacing: 1px; }
+
+  #selected-info {
+    background: #0f3460;
+    border: 1px solid #1a5276;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    min-height: 44px;
+  }
+  #selected-info .cell-label { font-weight: bold; color: #90caf9; }
+  #selected-info .orient-label { color: #f9a825; }
+
+  /* Orientation buttons (2×2 grid) */
+  #orient-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .btn-orient {
+    padding: 8px 4px;
+    border: 2px solid #333;
+    border-radius: 6px;
+    background: #1e3a5f;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 18px;
+    transition: all .15s;
+  }
+  .btn-orient:hover { background: #2a4f80; border-color: #555; }
+  .btn-orient.active { background: #1565c0; border-color: #42a5f5; color: white; }
+
+  .btn {
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: opacity .15s;
+    letter-spacing: .3px;
+  }
+  .btn:hover { opacity: .85; }
+  .btn:active { opacity: .7; }
+  .btn-rotate  { background: #1976d2; color: white; }
+  .btn-fail    { background: #c62828; color: white; }
+  .btn-view    { background: #2e7d32; color: white; }
+  .btn-muted   { background: #37474f; color: #ccc; }
+
+  .divider { border: none; border-top: 1px solid #2a3f5f; margin: 2px 0; }
+
+  #key-hint { font-size: 11px; color: #607d8b; line-height: 1.7; }
+  #key-hint kbd {
+    background: #1e3a5f; border: 1px solid #37474f;
+    border-radius: 3px; padding: 1px 5px; font-size: 11px;
+  }
+
+  /* ── Failed panel (modal) ── */
+  #failed-panel {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.75);
+    z-index: 200;
+    overflow-y: auto;
+    padding: 30px 20px;
+  }
+  #failed-inner {
+    background: #16213e;
+    border: 1px solid #1a5276;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 860px;
+    margin: 0 auto;
+  }
+  #failed-inner h2 { margin: 0 0 18px; color: #ef5350; }
+  .failed-grid { display: flex; flex-wrap: wrap; gap: 18px; }
+  .failed-card {
+    position: relative;
+    background: #0f3460;
+    border: 2px solid #ef5350;
+    border-radius: 8px;
+    padding: 8px;
+  }
+  .failed-card canvas { display: block; border-radius: 4px; }
+  .failed-card .card-time { font-size: 10px; color: #90a4ae; text-align: center; margin-top: 5px; }
+  .card-actions { display: flex; gap: 6px; margin-top: 6px; }
+  .card-btn {
+    flex: 1; padding: 4px; border: none; border-radius: 5px;
+    cursor: pointer; font-size: 11px; font-weight: 600;
+  }
+  .card-btn-load { background: #1565c0; color: white; }
+  .card-btn-del  { background: #b71c1c; color: white; }
+  #no-fails { color: #607d8b; text-align: center; padding: 40px; }
+  #close-panel {
+    float: right; background: #37474f; color: white;
+    border: none; border-radius: 6px; padding: 6px 14px;
+    cursor: pointer; font-size: 13px; font-weight: 600;
+  }
+  #close-panel:hover { background: #546e7a; }
+</style>
+</head>
+<body>
+
+<!-- ═══ Puzzle ═══ -->
+<div id="puzzle-wrap">
+  <img id="puzzle-img" src="may_js_puzzle.png" alt="Jane Street May Puzzle" draggable="false">
+  <canvas id="arc-canvas"></canvas>
+</div>
+
+<!-- ═══ Sidebar ═══ -->
+<div id="sidebar">
+  <h3>Arc Placer</h3>
+
+  <div id="selected-info">Click a cell to select it</div>
+
+  <!-- Orientation picker -->
+  <div>
+    <div style="font-size:11px;color:#78909c;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Orientation</div>
+    <div id="orient-grid">
+      <button class="btn-orient" data-o="0" title="NW arc">↖</button>
+      <button class="btn-orient" data-o="1" title="NE arc">↗</button>
+      <button class="btn-orient" data-o="3" title="SW arc">↙</button>
+      <button class="btn-orient" data-o="2" title="SE arc">↘</button>
+    </div>
+  </div>
+
+  <button class="btn btn-rotate" id="btn-rotate">↻  Rotate Arc</button>
+  <button class="btn btn-muted"  id="btn-clear-cell">✕  Clear Cell</button>
+
+  <hr class="divider">
+
+  <button class="btn btn-fail" id="btn-fail">⚑  Mark as FAIL</button>
+  <button class="btn btn-view" id="btn-view">
+    👁  View Fails &nbsp;<span id="fail-count" style="background:rgba(0,0,0,.3);border-radius:10px;padding:1px 7px">0</span>
+  </button>
+
+  <hr class="divider">
+
+  <button class="btn btn-muted" id="btn-clear-all">⊘  Clear All Arcs</button>
+
+  <div id="key-hint">
+    <kbd>R</kbd> rotate &nbsp;
+    <kbd>Del</kbd> clear cell<br>
+    <kbd>1</kbd>–<kbd>4</kbd> set orientation<br>
+    <kbd>Esc</kbd> deselect
+  </div>
+</div>
+
+<!-- ═══ Failed states panel ═══ -->
+<div id="failed-panel">
+  <div id="failed-inner">
+    <button id="close-panel" onclick="closeFailed()">Close</button>
+    <h2>Failed States</h2>
+    <div class="failed-grid" id="failed-grid"></div>
+    <div id="no-fails" style="display:none">No failed states saved yet.</div>
+  </div>
+</div>
+
+<script>
+// ── Constants ────────────────────────────────────────────────────
+const IMG_PX   = 1070;        // actual image size
+const MARGIN   = 10;          // px from image edge to grid
+const GRID_PX  = 1050;        // 9×9 grid area in image pixels
+const NCELLS   = 9;
+const CELL_IMG = GRID_PX / NCELLS;   // ~116.67 px per cell in image coords
+const DISP     = 680;                 // display size in CSS px
+const SCALE    = DISP / IMG_PX;      // ≈ 0.6355
+const CELL_D   = CELL_IMG * SCALE;   // cell size in display px
+
+// ── State ────────────────────────────────────────────────────────
+// orientation: 0=NW, 1=NE, 2=SE, 3=SW   null=empty
+let cells    = Array.from({length: NCELLS}, () => Array(NCELLS).fill(null));
+let sel      = null;  // {r, c}
+let fails    = JSON.parse(localStorage.getItem('js_puzzle_fails') || '[]');
+
+// ── Canvas setup ─────────────────────────────────────────────────
+const canvas = document.getElementById('arc-canvas');
+const ctx    = canvas.getContext('2d');
+canvas.width  = DISP;
+canvas.height = DISP;
+
+// ── Geometry helpers ─────────────────────────────────────────────
+function cellOrigin(r, c) {
+  return {
+    x: (MARGIN + c * CELL_IMG) * SCALE,
+    y: (MARGIN + r * CELL_IMG) * SCALE,
+  };
+}
+
+// ── Drawing ──────────────────────────────────────────────────────
+const ARC_COLOR   = '#1e88e5';
+const SEL_COLOR   = '#ff8f00';
+const ARC_WIDTH   = 4;
+
+function drawArcInCell(gctx, r, c, orient, color, lw) {
+  const {x, y} = cellOrigin(r, c);
+  const s = CELL_D;
+  const rad = s / 2;
+
+  gctx.beginPath();
+  gctx.strokeStyle = color;
+  gctx.lineWidth = lw;
+  gctx.lineCap = 'round';
+
+  // Each arc is a quarter-circle (radius = cell size) connecting two diagonally
+  // opposite corners. The center sits at one of the other two corners.
+  // 4 variants: two diagonals × two bulge directions.
+  switch (orient) {
+    case 0: // TL↔BR, bulges toward TR — center = top-right corner
+      gctx.arc(x + s, y,     s, Math.PI,      Math.PI / 2,  true);  break;
+    case 1: // TL↔BR, bulges toward BL — center = bottom-left corner
+      gctx.arc(x,     y + s, s, -Math.PI / 2, 0,            false); break;
+    case 2: // TR↔BL, bulges toward TL — center = top-left corner
+      gctx.arc(x,     y,     s, 0,            Math.PI / 2,  false); break;
+    case 3: // TR↔BL, bulges toward BR — center = bottom-right corner
+      gctx.arc(x + s, y + s, s, -Math.PI / 2, Math.PI,      true);  break;
+  }
+  gctx.stroke();
+}
+
+function render() {
+  ctx.clearRect(0, 0, DISP, DISP);
+
+  // Selected cell highlight
+  if (sel) {
+    const {x, y} = cellOrigin(sel.r, sel.c);
+    ctx.fillStyle = 'rgba(255, 200, 0, 0.18)';
+    ctx.fillRect(x, y, CELL_D, CELL_D);
+    ctx.strokeStyle = 'rgba(255, 200, 0, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 1, y + 1, CELL_D - 2, CELL_D - 2);
+  }
+
+  // All arcs
+  for (let r = 0; r < NCELLS; r++) {
+    for (let c = 0; c < NCELLS; c++) {
+      if (cells[r][c] === null) continue;
+      const isSel = sel && sel.r === r && sel.c === c;
+      drawArcInCell(ctx, r, c, cells[r][c], isSel ? SEL_COLOR : ARC_COLOR, ARC_WIDTH);
+    }
+  }
+}
+
+// ── Click handling ────────────────────────────────────────────────
+canvas.addEventListener('click', e => {
+  const rect = canvas.getBoundingClientRect();
+  const px = (e.clientX - rect.left);
+  const py = (e.clientY - rect.top);
+
+  const gx = px / SCALE - MARGIN;
+  const gy = py / SCALE - MARGIN;
+  if (gx < 0 || gy < 0 || gx >= GRID_PX || gy >= GRID_PX) return;
+
+  const c = Math.floor(gx / CELL_IMG);
+  const r = Math.floor(gy / CELL_IMG);
+  if (r < 0 || r >= NCELLS || c < 0 || c >= NCELLS) return;
+
+  if (sel && sel.r === r && sel.c === c) {
+    sel = null;
+  } else {
+    sel = {r, c};
+    if (cells[r][c] === null) cells[r][c] = 0;
+  }
+  updateSidebar();
+  render();
+});
+
+// ── Controls ──────────────────────────────────────────────────────
+function rotate() {
+  if (!sel) return;
+  const {r, c} = sel;
+  cells[r][c] = cells[r][c] === null ? 0 : (cells[r][c] + 1) % 4;
+  updateSidebar(); render();
+}
+
+document.getElementById('btn-rotate').onclick = rotate;
+
+document.querySelectorAll('.btn-orient').forEach(btn => {
+  btn.onclick = () => {
+    if (!sel) return;
+    cells[sel.r][sel.c] = parseInt(btn.dataset.o);
+    updateSidebar(); render();
+  };
+});
+
+document.getElementById('btn-clear-cell').onclick = () => {
+  if (!sel) return;
+  cells[sel.r][sel.c] = null;
+  updateSidebar(); render();
+};
+
+document.getElementById('btn-clear-all').onclick = () => {
+  if (!confirm('Clear ALL arcs from the grid?')) return;
+  cells = Array.from({length: NCELLS}, () => Array(NCELLS).fill(null));
+  updateSidebar(); render();
+};
+
+document.getElementById('btn-fail').onclick = () => {
+  const snapshot = cells.map(row => [...row]);
+  fails.push({state: snapshot, ts: Date.now()});
+  localStorage.setItem('js_puzzle_fails', JSON.stringify(fails));
+  updateFailCount();
+  flashFail();
+};
+
+document.getElementById('btn-view').onclick = showFailed;
+
+// ── Keyboard shortcuts ────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'r' || e.key === 'R') { rotate(); return; }
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (!sel) return;
+    cells[sel.r][sel.c] = null;
+    updateSidebar(); render(); return;
+  }
+  if (e.key === 'Escape') { sel = null; updateSidebar(); render(); return; }
+  if (['1','2','3','4'].includes(e.key)) {
+    if (!sel) return;
+    // 1=NW, 2=NE, 3=SW, 4=SE (matching visual 2×2 layout)
+    const map = {'1':0, '2':1, '3':3, '4':2};
+    cells[sel.r][sel.c] = map[e.key];
+    updateSidebar(); render();
+  }
+});
+
+// ── Sidebar state ─────────────────────────────────────────────────
+const ORIENT_NAMES = ['NW ↖', 'NE ↗', 'SE ↘', 'SW ↙'];
+const ORIENT_EMOJIS = ['↖', '↗', '↘', '↙'];
+
+function updateSidebar() {
+  const info = document.getElementById('selected-info');
+  if (!sel) {
+    info.innerHTML = '<span style="color:#607d8b">Click a cell to select it</span>';
+    document.querySelectorAll('.btn-orient').forEach(b => b.classList.remove('active'));
+    return;
+  }
+  const {r, c} = sel;
+  const o = cells[r][c];
+  info.innerHTML =
+    `<span class="cell-label">Row ${r+1}, Col ${c+1}</span><br>` +
+    (o !== null
+      ? `Arc: <span class="orient-label">${ORIENT_NAMES[o]}</span>`
+      : '<span style="color:#607d8b">No arc</span>');
+  document.querySelectorAll('.btn-orient').forEach(b =>
+    b.classList.toggle('active', parseInt(b.dataset.o) === o)
+  );
+}
+
+function updateFailCount() {
+  document.getElementById('fail-count').textContent = fails.length;
+}
+
+function flashFail() {
+  const btn = document.getElementById('btn-fail');
+  btn.textContent = '✓  Saved!';
+  btn.style.background = '#2e7d32';
+  setTimeout(() => {
+    btn.textContent = '⚑  Mark as FAIL';
+    btn.style.background = '';
+  }, 1200);
+}
+
+// ── Mini-canvas renderer for failed panel ─────────────────────────
+const MINI = 180;  // mini canvas px
+const MINI_SCALE = MINI / IMG_PX;
+const MINI_CELL  = CELL_IMG * MINI_SCALE;
+const MINI_OFF   = MARGIN * MINI_SCALE;
+
+function renderMini(state) {
+  const mc = document.createElement('canvas');
+  mc.width = mc.height = MINI;
+  const mctx = mc.getContext('2d');
+
+  // Light grid lines
+  mctx.strokeStyle = '#2a4f80';
+  mctx.lineWidth = 0.4;
+  for (let i = 0; i <= NCELLS; i++) {
+    const p = MINI_OFF + i * MINI_CELL;
+    mctx.beginPath(); mctx.moveTo(p, MINI_OFF); mctx.lineTo(p, MINI_OFF + 9*MINI_CELL); mctx.stroke();
+    mctx.beginPath(); mctx.moveTo(MINI_OFF, p); mctx.lineTo(MINI_OFF + 9*MINI_CELL, p); mctx.stroke();
+  }
+
+  // Arcs
+  state.forEach((row, r) => row.forEach((orient, c) => {
+    if (orient === null) return;
+    const x = MINI_OFF + c * MINI_CELL;
+    const y = MINI_OFF + r * MINI_CELL;
+    const s = MINI_CELL;
+    const rad = s / 2;
+    mctx.beginPath();
+    mctx.strokeStyle = '#ef5350';
+    mctx.lineWidth = 1.5;
+    mctx.lineCap = 'round';
+    switch (orient) {
+      case 0: mctx.arc(x + s, y,     s, Math.PI,      Math.PI/2,  true);  break;
+      case 1: mctx.arc(x,     y + s, s, -Math.PI/2,   0,          false); break;
+      case 2: mctx.arc(x,     y,     s, 0,             Math.PI/2,  false); break;
+      case 3: mctx.arc(x + s, y + s, s, -Math.PI/2,   Math.PI,    true);  break;
+    }
+    mctx.stroke();
+  }));
+
+  return mc;
+}
+
+// ── Failed states panel ───────────────────────────────────────────
+function showFailed() {
+  const grid   = document.getElementById('failed-grid');
+  const noFail = document.getElementById('no-fails');
+  grid.innerHTML = '';
+
+  if (fails.length === 0) {
+    noFail.style.display = 'block';
+  } else {
+    noFail.style.display = 'none';
+    fails.forEach((f, idx) => {
+      const card = document.createElement('div');
+      card.className = 'failed-card';
+
+      card.appendChild(renderMini(f.state));
+
+      const time = document.createElement('div');
+      time.className = 'card-time';
+      time.textContent = new Date(f.ts).toLocaleString();
+      card.appendChild(time);
+
+      const actions = document.createElement('div');
+      actions.className = 'card-actions';
+
+      const loadBtn = document.createElement('button');
+      loadBtn.className = 'card-btn card-btn-load';
+      loadBtn.textContent = 'Load';
+      loadBtn.onclick = () => {
+        cells = f.state.map(row => [...row]);
+        closeFailed();
+        updateSidebar();
+        render();
+      };
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'card-btn card-btn-del';
+      delBtn.textContent = 'Delete';
+      delBtn.onclick = () => {
+        fails.splice(idx, 1);
+        localStorage.setItem('js_puzzle_fails', JSON.stringify(fails));
+        updateFailCount();
+        showFailed();
+      };
+
+      actions.appendChild(loadBtn);
+      actions.appendChild(delBtn);
+      card.appendChild(actions);
+      grid.appendChild(card);
+    });
+  }
+
+  document.getElementById('failed-panel').style.display = 'block';
+}
+
+function closeFailed() {
+  document.getElementById('failed-panel').style.display = 'none';
+}
+
+document.getElementById('failed-panel').addEventListener('click', e => {
+  if (e.target === document.getElementById('failed-panel')) closeFailed();
+});
+
+// ── Init ──────────────────────────────────────────────────────────
+updateFailCount();
+render();
+</script>
+</body>
+</html>
