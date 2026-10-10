@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jane Street May Puzzle</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px;
+    font-family: 'Segoe UI', sans-serif;
+    background: #16213e;
+    color: #e0e0e0;
+    display: flex;
+    gap: 20px;
+    min-height: 100vh;
+  }
+
+  /* ── Puzzle area ── */
+  #puzzle-wrap {
+    position: relative;
+    flex-shrink: 0;
+    align-self: flex-start;
+  }
+  #puzzle-img {
+    display: block;
+    width: 680px;
+    height: 680px;
+    user-select: none;
+  }
+  #arc-canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 680px; height: 680px;
+    cursor: crosshair;
+  }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    align-self: flex-start;
+  }
+  h3 { margin: 0; font-size: 15px; color: #90caf9; text-transform: uppercase; letter-spacing: 1px; }
+
+  #selected-info {
+    background: #0f3460;
+    border: 1px solid #1a5276;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    min-height: 44px;
+  }
+  #selected-info .cell-label { font-weight: bold; color: #90caf9; }
+  #selected-info .orient-label { color: #f9a825; }
+
+  /* Orientation buttons (2×2 grid) */
+  #orient-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .btn-orient {
+    padding: 8px 4px;
+    border: 2px solid #333;
+    border-radius: 6px;
+    background: #1e3a5f;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 18px;
+    transition: all .15s;
+  }
+  .btn-orient:hover { background: #2a4f80; border-color: #555; }
+  .btn-orient.active { background: #1565c0; border-color: #42a5f5; color: white; }
+
+  .btn {
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: opacity .15s;
+    letter-spacing: .3px;
+  }
+  .btn:hover { opacity: .85; }
+  .btn:active { opacity: .7; }
+  .btn-rotate  { background: #1976d2; color: white; }
+  .btn-fail    { background: #c62828; color: white; }
+  .btn-view    { background: #2e7d32; color: white; }
+  .btn-muted   { background: #37474f; color: #ccc; }
+
+  .info-box {
+    background: #0f3460;
+    border: 1px solid #1a5276;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .info-box .k { color: #78909c; }
+  .info-box .v { color: #f9a825; font-weight: 600; }
+  .info-box .warn { color: #ef5350; font-size: 12px; }
+  .info-box .big { font-size: 20px; color: #66bb6a; font-weight: 700; }
+  .toggle { font-size: 13px; color: #ccc; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+  .divider { border: none; border-top: 1px solid #2a3f5f; margin: 2px 0; }
+
+  #key-hint { font-size: 11px; color: #607d8b; line-height: 1.7; }
+  #key-hint kbd {
+    background: #1e3a5f; border: 1px solid #37474f;
+    border-radius: 3px; padding: 1px 5px; font-size: 11px;
+  }
+
+  /* ── Failed panel (modal) ── */
+  #failed-panel {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.75);
+    z-index: 200;
+    overflow-y: auto;
+    padding: 30px 20px;
+  }
+  #failed-inner {
+    background: #16213e;
+    border: 1px solid #1a5276;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 860px;
+    margin: 0 auto;
+  }
+  #failed-inner h2 { margin: 0 0 18px; color: #ef5350; }
+  .failed-grid { display: flex; flex-wrap: wrap; gap: 18px; }
+  .failed-card {
+    position: relative;
+    background: #0f3460;
+    border: 2px solid #ef5350;
+    border-radius: 8px;
+    padding: 8px;
+  }
+  .failed-card canvas { display: block; border-radius: 4px; }
+  .failed-card .card-time { font-size: 10px; color: #90a4ae; text-align: center; margin-top: 5px; }
+  .card-actions { display: flex; gap: 6px; margin-top: 6px; }
+  .card-btn {
+    flex: 1; padding: 4px; border: none; border-radius: 5px;
+    cursor: pointer; font-size: 11px; font-weight: 600;
+  }
+  .card-btn-load { background: #1565c0; color: white; }
+  .card-btn-del  { background: #b71c1c; color: white; }
+  #no-fails { color: #607d8b; text-align: center; padding: 40px; }
+  #close-panel {
+    float: right; background: #37474f; color: white;
+    border: none; border-radius: 6px; padding: 6px 14px;
+    cursor: pointer; font-size: 13px; font-weight: 600;
+  }
+  #close-panel:hover { background: #546e7a; }
+</style>
+</head>
+<body>
+
+<!-- ═══ Puzzle ═══ -->
+<div id="puzzle-wrap">
+  <img id="puzzle-img" src="may_js_puzzle.png" alt="Jane Street May Puzzle" draggable="false">
+  <canvas id="arc-canvas"></canvas>
+</div>
+
+<!-- ═══ Sidebar ═══ -->
+<div id="sidebar">
+  <h3>Arc Placer</h3>
+
+  <div id="selected-info">Click a cell to select it</div>
+
+  <!-- Orientation picker -->
+  <div>
+    <div style="font-size:11px;color:#78909c;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Orientation</div>
+    <div id="orient-grid">
+      <button class="btn-orient" data-o="0" title="NW arc">↖</button>
+      <button class="btn-orient" data-o="1" title="NE arc">↗</button>
+      <button class="btn-orient" data-o="3" title="SW arc">↙</button>
+      <button class="btn-orient" data-o="2" title="SE arc">↘</button>
+    </div>
+  </div>
+
+  <button class="btn btn-rotate" id="btn-rotate">↻  Rotate Arc</button>
+  <button class="btn btn-muted"  id="btn-clear-cell">✕  Clear Cell</button>
+
+  <hr class="divider">
+
+  <h3>Region</h3>
+  <div id="region-info" class="info-box"></div>
+  <div id="answer-info" class="info-box"></div>
+  <label class="toggle"><input type="checkbox" id="tog-scores" checked> Show cell scores</label>
+  <label class="toggle"><input type="checkbox" id="tog-colors"> Color all regions</label>
+
+  <hr class="divider">
+
+  <button class="btn btn-fail" id="btn-fail">⚑  Mark as FAIL</button>
+  <button class="btn btn-view" id="btn-view">
+    👁  View Fails &nbsp;<span id="fail-count" style="background:rgba(0,0,0,.3);border-radius:10px;padding:1px 7px">0</span>
+  </button>
+
+  <hr class="divider">
+
+  <button class="btn btn-muted" id="btn-clear-all">⊘  Clear All Arcs</button>
+
+  <div id="key-hint">
+    <kbd>R</kbd> rotate &nbsp;
+    <kbd>Del</kbd> clear cell<br>
+    <kbd>1</kbd>–<kbd>4</kbd> set orientation<br>
+    <kbd>S</kbd> scores &nbsp; <kbd>C</kbd> colors<br>
+    <kbd>Esc</kbd> deselect
+  </div>
+</div>
+
+<!-- ═══ Failed states panel ═══ -->
+<div id="failed-panel">
+  <div id="failed-inner">
+    <button id="close-panel" onclick="closeFailed()">Close</button>
+    <h2>Failed States</h2>
+    <div class="failed-grid" id="failed-grid"></div>
+    <div id="no-fails" style="display:none">No failed states saved yet.</div>
+  </div>
+</div>
+
+<script>
+// ── Constants ────────────────────────────────────────────────────
+const IMG_PX   = 1070;        // actual image size
+const MARGIN   = 10;          // px from image edge to grid
+const GRID_PX  = 1050;        // 9×9 grid area in image pixels
+const NCELLS   = 9;
+const CELL_IMG = GRID_PX / NCELLS;   // ~116.67 px per cell in image coords
+const DISP     = 680;                 // display size in CSS px
+const SCALE    = DISP / IMG_PX;      // ≈ 0.6355
+const CELL_D   = CELL_IMG * SCALE;   // cell size in display px
+
+// ── State ────────────────────────────────────────────────────────
+// orientation: 0=NW, 1=NE, 2=SE, 3=SW   null=empty
+let cells    = Array.from({length: NCELLS}, () => Array(NCELLS).fill(null));
+let sel      = null;  // {r, c}
+let fails    = JSON.parse(localStorage.getItem('js_puzzle_fails') || '[]');
+
+// ── Canvas setup ─────────────────────────────────────────────────
+const canvas = document.getElementById('arc-canvas');
+const ctx    = canvas.getContext('2d');
+canvas.width  = DISP;
+canvas.height = DISP;
+
+// ── Geometry helpers ─────────────────────────────────────────────
+function cellOrigin(r, c) {
+  return {
+    x: (MARGIN + c * CELL_IMG) * SCALE,
+    y: (MARGIN + r * CELL_IMG) * SCALE,
+  };
+}
+
+// ── Drawing ──────────────────────────────────────────────────────
+const ARC_COLOR   = '#1e88e5';
+const SEL_COLOR   = '#ff8f00';
+const ARC_WIDTH   = 4;
+
+// Each arc is a quarter-circle (radius = cell size) connecting two diagonally
+// opposite corners. The center sits at one of the other two corners.
+// 4 variants: two diagonals × two bulge directions.
+// [centerX, centerY (in cell units), startAngle, endAngle, anticlockwise]
+const ARC_PARAMS = [
+  [1, 0, Math.PI,      Math.PI / 2, true ],  // 0: TL↔BR, center = top-right
+  [0, 1, -Math.PI / 2, 0,           false],  // 1: TL↔BR, center = bottom-left
+  [0, 0, 0,            Math.PI / 2, false],  // 2: TR↔BL, center = top-left
+  [1, 1, -Math.PI / 2, Math.PI,     true ],  // 3: TR↔BL, center = bottom-right
+];
+
+function arcPath(gctx, x, y, s, orient) {
+  const [cx, cy, a0, a1, ccw] = ARC_PARAMS[orient];
+  gctx.arc(x + cx * s, y + cy * s, s, a0, a1, ccw);
+}
+
+function drawArcInCell(gctx, r, c, orient, color, lw) {
+  const {x, y} = cellOrigin(r, c);
+  gctx.beginPath();
+  gctx.strokeStyle = color;
+  gctx.lineWidth = lw;
+  gctx.lineCap = 'round';
+  arcPath(gctx, x, y, CELL_D, orient);
+  gctx.stroke();
+}
+
+// Fill one piece of a cell (piece 0 = quarter disk / whole cell, 1 = remainder)
+function fillPiece(gctx, r, c, piece, color) {
+  const {x, y} = cellOrigin(r, c);
+  const s = CELL_D, o = cells[r][c];
+  gctx.beginPath();
+  if (o === null) {
+    gctx.rect(x, y, s, s);
+  } else {
+    const [cx, cy] = ARC_PARAMS[o];
+    gctx.moveTo(x + cx * s, y + cy * s);
+    arcPath(gctx, x, y, s, o);
+    gctx.closePath();
+    if (piece === 1) gctx.rect(x, y, s, s);  // evenodd → cell minus disk
+  }
+  gctx.fillStyle = color;
+  gctx.fill('evenodd');
+}
+
+// ── Region analysis ──────────────────────────────────────────────
+// An arc splits its cell into a quarter-disk piece (around the arc's center
+// corner, area π/4) and a remainder piece (area 1 − π/4). The disk piece owns
+// the two cell edges meeting at the center corner and the remainder owns the
+// other two, so pieces join their neighbours across shared edges.
+// Piece 0 = disk (or the whole cell when empty), piece 1 = remainder.
+// Since π/4 > 1/2, a cell's majority region is always that of piece 0.
+const DISK_EDGES = [['N', 'E'], ['S', 'W'], ['N', 'W'], ['S', 'E']];  // by orientation
+const QUARTER_PI = Math.PI / 4;
+
+const pieceOwning = (o, edge) => (o === null || DISK_EDGES[o].includes(edge)) ? 0 : 1;
+const pid = (r, c, p) => `${r},${c},${p}`;
+const inGrid = (r, c) => r >= 0 && r < NCELLS && c >= 0 && c < NCELLS;
+
+function makeUF() {
+  const parent = new Map();
+  const find = x => {
+    if (!parent.has(x)) parent.set(x, x);
+    while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); }
+    return x;
+  };
+  return { find, union: (a, b) => parent.set(find(a), find(b)) };
+}
+
+// Around grid vertex (i, j) the rays are 0=E 1=N 2=W 3=S (counter-clockwise on
+// screen); quadrant k is the cell between ray k and ray k+1, and `edges` are
+// that cell's edges lying along ray k and ray k+1.
+const QUADS = [
+  { dr: -1, dc:  0, edges: ['S', 'W'] },  // NE cell
+  { dr: -1, dc: -1, edges: ['E', 'S'] },  // NW cell
+  { dr:  0, dc: -1, edges: ['N', 'E'] },  // SW cell
+  { dr:  0, dc:  0, edges: ['W', 'N'] },  // SE cell
+];
+
+// ID of the unit grid-border segment leaving vertex (i, j) along ray k
+function borderSeg(i, j, k) {
+  return [`h${i},${j}`, `v${i-1},${j}`, `h${i},${j-1}`, `v${i},${j}`][k];
+}
+
+function analyze(state) {
+  // 1. Connect pieces across shared cell edges.
+  const uf = makeUF();
+  for (let r = 0; r < NCELLS; r++) {
+    for (let c = 0; c < NCELLS; c++) {
+      const o = state[r][c];
+      uf.find(pid(r, c, 0));
+      if (o !== null) uf.find(pid(r, c, 1));
+      if (c + 1 < NCELLS)
+        uf.union(pid(r, c, pieceOwning(o, 'E')), pid(r, c + 1, pieceOwning(state[r][c + 1], 'W')));
+      if (r + 1 < NCELLS)
+        uf.union(pid(r, c, pieceOwning(o, 'S')), pid(r + 1, c, pieceOwning(state[r + 1][c], 'N')));
+    }
+  }
+
+  // 2. Areas: full cells, quarter disks and remainders per region.
+  const regions = new Map();
+  const reg = piece => {
+    const id = uf.find(piece);
+    if (!regions.has(id))
+      regions.set(id, { id, full: 0, disk: 0, rest: 0, dangling: 0, nodes: new Set(), corners: [] });
+    return regions.get(id);
+  };
+  for (let r = 0; r < NCELLS; r++) {
+    for (let c = 0; c < NCELLS; c++) {
+      const g0 = reg(pid(r, c, 0));
+      if (state[r][c] === null) { g0.full++; continue; }
+      const g1 = reg(pid(r, c, 1));
+      g0.disk++; g1.rest++;
+      if (g0 === g1) g0.dangling++;
+    }
+  }
+
+  // 3. Perimeter. Boundary curves are arc sides and unit border segments; they
+  // only meet at grid vertices, and arcs always leave a vertex tangent to a
+  // grid ray. Walking counter-clockwise around each vertex, the cuts (curves)
+  // split it into sectors; each sector joins the two curves bounding it, and
+  // the join is smooth iff their tangent rays are opposite.
+  const loops = makeUF();
+  for (let i = 0; i <= NCELLS; i++) {
+    for (let j = 0; j <= NCELLS; j++) {
+      const items = [];
+      for (let k = 0; k < 4; k++) {
+        const q = QUADS[k], prev = QUADS[(k + 3) % 4];
+        const r = i + q.dr, c = j + q.dc, inside = inGrid(r, c);
+        if (inside !== inGrid(i + prev.dr, j + prev.dc))
+          items.push({ cut: k, node: borderSeg(i, j, k) });
+        if (!inside) { items.push({ piece: null }); continue; }
+        const o = state[r][c];
+        const pa = pieceOwning(o, q.edges[0]), pb = pieceOwning(o, q.edges[1]);
+        if (pa === pb) { items.push({ piece: pid(r, c, pa) }); continue; }
+        // Arc ends here, hugging the ray whose edge the remainder piece owns
+        items.push({ piece: pid(r, c, pa) }, { cut: pa === 1 ? k : (k + 1) % 4 }, { piece: pid(r, c, pb) });
+      }
+      const n = items.length;
+      const cuts = items.flatMap((it, idx) => 'cut' in it ? [idx] : []);
+      cuts.forEach((ia, m) => {
+        const ib = cuts[(m + 1) % cuts.length];
+        const first = items[(ia + 1) % n], last = items[(ib - 1 + n) % n];
+        if (first.piece === null) return;  // sector outside the grid
+        const A = items[ia], B = items[ib], g = reg(first.piece);
+        const na = A.node ?? 'arc:' + first.piece, nb = B.node ?? 'arc:' + last.piece;
+        loops.union(na, nb);
+        g.nodes.add(na); g.nodes.add(nb);
+        if ((B.cut - A.cut + 4) % 4 !== 2) g.corners.push(na);
+      });
+    }
+  }
+
+  // 4. Smooth pieces = corners per boundary loop (a corner-free loop is 1 piece).
+  for (const g of regions.values()) {
+    const cornerCount = new Map();
+    for (const nd of g.corners) {
+      const root = loops.find(nd);
+      cornerCount.set(root, (cornerCount.get(root) || 0) + 1);
+    }
+    const roots = new Set([...g.nodes].map(loops.find));
+    g.pieces = [...roots].reduce((sum, root) => sum + Math.max(1, cornerCount.get(root) || 0), 0);
+    g.integral = g.disk === g.rest;
+    g.area = g.full + g.rest + (g.disk - g.rest) * QUARTER_PI;
+    g.score = g.integral && !g.dangling ? (g.full + g.rest) * g.pieces : null;
+  }
+
+  const cellRegion = Array.from({length: NCELLS}, (_, r) =>
+    Array.from({length: NCELLS}, (_, c) => reg(pid(r, c, 0))));
+  return { regions: [...regions.values()], regionOf: reg, cellRegion };
+}
+
+function formatArea(g) {
+  const n = g.full + g.rest, d = g.disk - g.rest;
+  if (d === 0) return String(n);
+  return `${n} ${d > 0 ? '+' : '−'} ${Math.abs(d)}·π/4 ≈ ${g.area.toFixed(3)}`;
+}
+
+let analysis = analyze(cells);
+
+function forEachPiece(fn) {
+  for (let r = 0; r < NCELLS; r++)
+    for (let c = 0; c < NCELLS; c++)
+      for (let p = 0; p < (cells[r][c] === null ? 1 : 2); p++) fn(r, c, p);
+}
+
+function drawScoreLabel(r, c, g) {
+  const {x, y} = cellOrigin(r, c);
+  const o = cells[r][c];
+  // Put the label inside the majority piece: near the arc's center corner,
+  // or the bottom-right corner for an empty cell.
+  const [cx, cy] = o === null ? [1, 1] : ARC_PARAMS[o];
+  const pad = 13;
+  const lx = x + (cx ? CELL_D - pad : pad);
+  const ly = y + (cy ? CELL_D - pad : pad);
+  const text = g.score === null ? '?' : String(g.score);
+  ctx.font = 'bold 11px "Segoe UI", sans-serif';
+  const w = Math.max(18, ctx.measureText(text).width + 8);
+  ctx.fillStyle = g.score === null ? 'rgba(198, 40, 40, 0.9)' : 'rgba(13, 71, 161, 0.9)';
+  ctx.beginPath();
+  ctx.roundRect(lx - w / 2, ly - 8, w, 16, 8);
+  ctx.fill();
+  ctx.fillStyle = 'white';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, lx, ly + 0.5);
+}
+
+function render() {
+  ctx.clearRect(0, 0, DISP, DISP);
+  analysis = analyze(cells);
+
+  // Region tints
+  if (document.getElementById('tog-colors').checked) {
+    const hue = new Map(analysis.regions.map((g, idx) => [g, (idx * 137.5) % 360]));
+    forEachPiece((r, c, p) =>
+      fillPiece(ctx, r, c, p, `hsla(${hue.get(analysis.regionOf(pid(r, c, p)))}, 70%, 55%, 0.28)`));
+  }
+
+  // Selected cell highlight (plus its majority region)
+  if (sel) {
+    const selRegion = analysis.cellRegion[sel.r][sel.c];
+    forEachPiece((r, c, p) => {
+      if (analysis.regionOf(pid(r, c, p)) === selRegion)
+        fillPiece(ctx, r, c, p, 'rgba(255, 200, 0, 0.16)');
+    });
+    const {x, y} = cellOrigin(sel.r, sel.c);
+    ctx.fillStyle = 'rgba(255, 200, 0, 0.18)';
+    ctx.fillRect(x, y, CELL_D, CELL_D);
+    ctx.strokeStyle = 'rgba(255, 200, 0, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 1, y + 1, CELL_D - 2, CELL_D - 2);
+  }
+
+  // All arcs
+  for (let r = 0; r < NCELLS; r++) {
+    for (let c = 0; c < NCELLS; c++) {
+      if (cells[r][c] === null) continue;
+      const isSel = sel && sel.r === r && sel.c === c;
+      drawArcInCell(ctx, r, c, cells[r][c], isSel ? SEL_COLOR : ARC_COLOR, ARC_WIDTH);
+    }
+  }
+
+  if (document.getElementById('tog-scores').checked) {
+    for (let r = 0; r < NCELLS; r++)
+      for (let c = 0; c < NCELLS; c++) drawScoreLabel(r, c, analysis.cellRegion[r][c]);
+  }
+
+  updateRegionInfo();
+}
+
+// ── Click handling ────────────────────────────────────────────────
+canvas.addEventListener('click', e => {
+  const rect = canvas.getBoundingClientRect();
+  const px = (e.clientX - rect.left);
+  const py = (e.clientY - rect.top);
+
+  const gx = px / SCALE - MARGIN;
+  const gy = py / SCALE - MARGIN;
+  if (gx < 0 || gy < 0 || gx >= GRID_PX || gy >= GRID_PX) return;
+
+  const c = Math.floor(gx / CELL_IMG);
+  const r = Math.floor(gy / CELL_IMG);
+  if (r < 0 || r >= NCELLS || c < 0 || c >= NCELLS) return;
+
+  if (sel && sel.r === r && sel.c === c) {
+    sel = null;
+  } else {
+    sel = {r, c};
+    if (cells[r][c] === null) cells[r][c] = 0;
+  }
+  updateSidebar();
+  render();
+});
+
+// ── Controls ──────────────────────────────────────────────────────
+function rotate() {
+  if (!sel) return;
+  const {r, c} = sel;
+  cells[r][c] = cells[r][c] === null ? 0 : (cells[r][c] + 1) % 4;
+  updateSidebar(); render();
+}
+
+document.getElementById('btn-rotate').onclick = rotate;
+
+document.querySelectorAll('.btn-orient').forEach(btn => {
+  btn.onclick = () => {
+    if (!sel) return;
+    cells[sel.r][sel.c] = parseInt(btn.dataset.o);
+    updateSidebar(); render();
+  };
+});
+
+document.getElementById('btn-clear-cell').onclick = () => {
+  if (!sel) return;
+  cells[sel.r][sel.c] = null;
+  updateSidebar(); render();
+};
+
+document.getElementById('btn-clear-all').onclick = () => {
+  if (!confirm('Clear ALL arcs from the grid?')) return;
+  cells = Array.from({length: NCELLS}, () => Array(NCELLS).fill(null));
+  updateSidebar(); render();
+};
+
+document.getElementById('btn-fail').onclick = () => {
+  const snapshot = cells.map(row => [...row]);
+  fails.push({state: snapshot, ts: Date.now()});
+  localStorage.setItem('js_puzzle_fails', JSON.stringify(fails));
+  updateFailCount();
+  flashFail();
+};
+
+document.getElementById('btn-view').onclick = showFailed;
+
+// ── Keyboard shortcuts ────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'r' || e.key === 'R') { rotate(); return; }
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (!sel) return;
+    cells[sel.r][sel.c] = null;
+    updateSidebar(); render(); return;
+  }
+  if (e.key === 'Escape') { sel = null; updateSidebar(); render(); return; }
+  if (e.key === 's' || e.key === 'S' || e.key === 'c' || e.key === 'C') {
+    const tog = document.getElementById(e.key.toLowerCase() === 's' ? 'tog-scores' : 'tog-colors');
+    tog.checked = !tog.checked;
+    render(); return;
+  }
+  if (['1','2','3','4'].includes(e.key)) {
+    if (!sel) return;
+    // 1=NW, 2=NE, 3=SW, 4=SE (matching visual 2×2 layout)
+    const map = {'1':0, '2':1, '3':3, '4':2};
+    cells[sel.r][sel.c] = map[e.key];
+    updateSidebar(); render();
+  }
+});
+
+// ── Sidebar state ─────────────────────────────────────────────────
+const ORIENT_NAMES = ['NW ↖', 'NE ↗', 'SE ↘', 'SW ↙'];
+const ORIENT_EMOJIS = ['↖', '↗', '↘', '↙'];
+
+function updateSidebar() {
+  const info = document.getElementById('selected-info');
+  if (!sel) {
+    info.innerHTML = '<span style="color:#607d8b">Click a cell to select it</span>';
+    document.querySelectorAll('.btn-orient').forEach(b => b.classList.remove('active'));
+    return;
+  }
+  const {r, c} = sel;
+  const o = cells[r][c];
+  info.innerHTML =
+    `<span class="cell-label">Row ${r+1}, Col ${c+1}</span><br>` +
+    (o !== null
+      ? `Arc: <span class="orient-label">${ORIENT_NAMES[o]}</span>`
+      : '<span style="color:#607d8b">No arc</span>');
+  document.querySelectorAll('.btn-orient').forEach(b =>
+    b.classList.toggle('active', parseInt(b.dataset.o) === o)
+  );
+}
+
+document.getElementById('tog-scores').onchange = render;
+document.getElementById('tog-colors').onchange = render;
+
+function updateRegionInfo() {
+  const info = document.getElementById('region-info');
+  if (!sel) {
+    info.innerHTML = '<span style="color:#607d8b">Select a cell to see the region covering most of it</span>';
+  } else {
+    const g = analysis.cellRegion[sel.r][sel.c];
+    info.innerHTML =
+      `<span class="k">Area:</span> <span class="v">${formatArea(g)}</span><br>` +
+      `<span class="k">Smooth pieces:</span> <span class="v">${g.pieces}</span><br>` +
+      `<span class="k">Score:</span> <span class="v">${g.score === null ? '—' : g.score}</span>` +
+      (g.integral ? '' : '<br><span class="warn">Area is not an integer</span>') +
+      (g.dangling ? `<br><span class="warn">${g.dangling} dangling arc(s) inside region</span>` : '');
+  }
+
+  const answer = document.getElementById('answer-info');
+  const nonInt = analysis.regions.filter(g => !g.integral).length;
+  const dangling = analysis.regions.reduce((sum, g) => sum + g.dangling, 0);
+  if (nonInt || dangling) {
+    answer.innerHTML =
+      `<span class="k">Regions:</span> <span class="v">${analysis.regions.length}</span><br>` +
+      (nonInt ? `<span class="warn">${nonInt} region(s) with non-integer area</span><br>` : '') +
+      (dangling ? `<span class="warn">${dangling} dangling arc(s)</span><br>` : '') +
+      '<span class="k">Answer unavailable</span>';
+    return;
+  }
+  const scores = analysis.cellRegion.map(row => row.map(g => g.score));
+  const rowSums = scores.map(row => row.reduce((a, b) => a + b, 0));
+  const colSums = scores[0].map((_, c) => scores.reduce((a, row) => a + row[c], 0));
+  const total = [...rowSums, ...colSums].reduce((a, v) => a + v * v, 0);
+  answer.innerHTML =
+    `<span class="k">Regions:</span> <span class="v">${analysis.regions.length}</span><br>` +
+    `<span class="k">Row sums:</span> ${rowSums.join(', ')}<br>` +
+    `<span class="k">Col sums:</span> ${colSums.join(', ')}<br>` +
+    `<span class="k">Answer:</span> <span class="big">${total}</span>`;
+}
+
+function updateFailCount() {
+  document.getElementById('fail-count').textContent = fails.length;
+}
+
+function flashFail() {
+  const btn = document.getElementById('btn-fail');
+  btn.textContent = '✓  Saved!';
+  btn.style.background = '#2e7d32';
+  setTimeout(() => {
+    btn.textContent = '⚑  Mark as FAIL';
+    btn.style.background = '';
+  }, 1200);
+}
+
+// ── Mini-canvas renderer for failed panel ─────────────────────────
+const MINI = 180;  // mini canvas px
+const MINI_SCALE = MINI / IMG_PX;
+const MINI_CELL  = CELL_IMG * MINI_SCALE;
+const MINI_OFF   = MARGIN * MINI_SCALE;
+
+function renderMini(state) {
+  const mc = document.createElement('canvas');
+  mc.width = mc.height = MINI;
+  const mctx = mc.getContext('2d');
+
+  // Light grid lines
+  mctx.strokeStyle = '#2a4f80';
+  mctx.lineWidth = 0.4;
+  for (let i = 0; i <= NCELLS; i++) {
+    const p = MINI_OFF + i * MINI_CELL;
+    mctx.beginPath(); mctx.moveTo(p, MINI_OFF); mctx.lineTo(p, MINI_OFF + 9*MINI_CELL); mctx.stroke();
+    mctx.beginPath(); mctx.moveTo(MINI_OFF, p); mctx.lineTo(MINI_OFF + 9*MINI_CELL, p); mctx.stroke();
+  }
+
+  // Arcs
+  state.forEach((row, r) => row.forEach((orient, c) => {
+    if (orient === null) return;
+    const x = MINI_OFF + c * MINI_CELL;
+    const y = MINI_OFF + r * MINI_CELL;
+    mctx.beginPath();
+    mctx.strokeStyle = '#ef5350';
+    mctx.lineWidth = 1.5;
+    mctx.lineCap = 'round';
+    arcPath(mctx, x, y, MINI_CELL, orient);
+    mctx.stroke();
+  }));
+
+  return mc;
+}
+
+// ── Failed states panel ───────────────────────────────────────────
+function showFailed() {
+  const grid   = document.getElementById('failed-grid');
+  const noFail = document.getElementById('no-fails');
+  grid.innerHTML = '';
+
+  if (fails.length === 0) {
+    noFail.style.display = 'block';
+  } else {
+    noFail.style.display = 'none';
+    fails.forEach((f, idx) => {
+      const card = document.createElement('div');
+      card.className = 'failed-card';
+
+      card.appendChild(renderMini(f.state));
+
+      const time = document.createElement('div');
+      time.className = 'card-time';
+      time.textContent = new Date(f.ts).toLocaleString();
+      card.appendChild(time);
+
+      const actions = document.createElement('div');
+      actions.className = 'card-actions';
+
+      const loadBtn = document.createElement('button');
+      loadBtn.className = 'card-btn card-btn-load';
+      loadBtn.textContent = 'Load';
+      loadBtn.onclick = () => {
+        cells = f.state.map(row => [...row]);
+        closeFailed();
+        updateSidebar();
+        render();
+      };
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'card-btn card-btn-del';
+      delBtn.textContent = 'Delete';
+      delBtn.onclick = () => {
+        fails.splice(idx, 1);
+        localStorage.setItem('js_puzzle_fails', JSON.stringify(fails));
+        updateFailCount();
+        showFailed();
+      };
+
+      actions.appendChild(loadBtn);
+      actions.appendChild(delBtn);
+      card.appendChild(actions);
+      grid.appendChild(card);
+    });
+  }
+
+  document.getElementById('failed-panel').style.display = 'block';
+}
+
+function closeFailed() {
+  document.getElementById('failed-panel').style.display = 'none';
+}
+
+document.getElementById('failed-panel').addEventListener('click', e => {
+  if (e.target === document.getElementById('failed-panel')) closeFailed();
+});
+
+// ── Init ──────────────────────────────────────────────────────────
+updateFailCount();
+render();
+</script>
+</body>
+</html>
